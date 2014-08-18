@@ -2,15 +2,19 @@ These images were generated from: http://bottlecaps.de/rr/ui
 
 The following EBNF grammar was used:
 
-object ::= value* ( ';' | '{' ( name value (','? name value)* )? '}')
+object ::= simple_value* ( ';' | '{' ( name value(','? name value)* )? '}')
 
-list   ::= '[' (value ( ','? value)*)? ']'
+list   ::= '[' (value( ','? value)*)? ']'
 
 table  ::= '<' (name(','? name)*)? '>' list
 
-value  ::= object | list | table | name
+simple_value ::= list | table | name
+
+value ::= simple_value | object
 
 name   ::= any_non_whitespace_or_control_character+ |
-          '"' ( ( any_char_except_quote_or_backslash )* | '\' (["\/bfnrt]|u FourHexDigits) ) '"'
+          '"' ( ( any_char_except_quote_or_backslash )* |
+                  '\' (["\/bfnrt]|u FourHexDigits) ) '"'
 
-control_character ::= '{' | '}' | '[' | ']' | '<' | '>' | ';' | ',' | '"' | "'" | '\' | '#' | '/' | '*'
+control_character ::= '{' | '}' | '[' | ']' | '<' | '>' | ';' | ',' |
+                      '"' | "'" | '\' | '#' | '/' | '*'
