@@ -2,7 +2,7 @@ These images were generated from: http://bottlecaps.de/rr/ui
 
 The following EBNF grammar was used:
 
-object ::= simple_value* ( ';' | '{' ( name value(','? name value)* )? '}')
+object ::= (simple_value(','?simple_value)*)? '{' ( name ':'? value(','? name ':'? value)* )? '}'
 
 list   ::= '[' (value( ','? value)*)? ']'
 
@@ -13,6 +13,7 @@ simple_value ::= list | table | name
 value ::= simple_value | object
 
 name   ::= any_non_whitespace_or_control_character+ |
+           "'" ( any_char_except_single_quote_or_backslash | '\' ['\] )* "'" |
           '"' ( ( any_char_except_quote_or_backslash )* |
                   '\' (["\/bfnrt]|u FourHexDigits) ) '"'
 
