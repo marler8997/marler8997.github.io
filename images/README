@@ -2,22 +2,21 @@ These images were generated from: http://bottlecaps.de/rr/ui
 
 The following EBNF grammar was used:
 
-ason ::= '{'? name_values '}'? | '['? (value(','?value)*) ']'?
+ason ::= '{'? name_values '}'? | '['? (value ','?)* ']'?
 
-object ::= (simple_value(','?simple_value)*)? '{' name_values '}'
+object ::= (simple_value ','?)* '{' name_values '}'
 
-name_values ::= ( name ':'? value(','? name ':'? value)* )?
+name_values ::= ( string ':'? value ','?)*
 
+list   ::= '[' (value ','?)* ']'
 
-list   ::= '[' (value( ','? value)*)? ']'
+table  ::= '<' (string ','?)* '>' list
 
-table  ::= '<' (name(','? name)*)? '>' list
-
-simple_value ::= list | table | name
+simple_value ::= list | table | string
 
 value ::= simple_value | object
 
-name   ::= any_non_whitespace_or_control_character+ |
+string   ::= any_non_whitespace_or_control_character+ |
            "'" ( any_char_except_single_quote_or_backslash |
 		         '\' ['\] )* "'" |
           '"' ( ( any_char_except_quote_or_backslash )* |
