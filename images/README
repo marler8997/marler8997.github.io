@@ -2,9 +2,9 @@ These images were generated from: http://bottlecaps.de/rr/ui
 
 The following EBNF grammar was used:
 
-ason ::= '{'? name_values '}'? | '['? (value ','?)* ']'?
+ason ::= '{'? name_values '}'? | ('{' name_values '}' ','?)*
 
-object ::= (simple_value ','?)* '{' name_values '}'
+object ::= (simple_value ','?)* ( ';' | '{' name_values '}' )
 
 name_values ::= ( string ':'? value ','?)*
 
