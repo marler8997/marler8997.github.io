@@ -1,0 +1,24 @@
+These images were generated from: http://bottlecaps.de/rr/ui
+
+The following EBNF grammar was used:
+
+values ::= (value ','?)*
+
+value ::= name_values | list | table | attribute | string
+					  
+name_values ::= '{' ( string ':'? values ','?)* '}'
+
+list   ::= '[' values ']'
+
+table  ::= '<' (string ','?)* '>' list
+
+attribute ::= string '=' value
+
+string   ::= any_non_whitespace_or_control_character+ |
+           "'" ( any_char_except_single_quote_or_backslash |
+		         '\' ['\] )* "'" |
+          '"' ( ( any_char_except_quote_or_backslash_or_newline )* |
+                  '\' (["\/bfnrt]|u FourHexDigits) ) '"'
+
+control_character ::= '{' | '}' | '[' | ']' | '<' | '>' | ';' | ',' |
+                      '"' | "'" | '\' | '#' | '/' | '*' | '='
