@@ -85,3 +85,26 @@ code.zig .numeric.constant {
 code.zig .function {
   color: var(--blue);
 }
+
+code.typescript,
+code.ts {
+  color: var(--cyan);
+}
+code.typescript .keyword,
+code.typescript .type,
+code.ts .keyword,
+code.ts .type {
+  color: var(--light-yellow);
+}
+code.typescript .string,
+code.ts .string {
+  color: var(--dark-yellow);
+}
+code.typescript .numeric.constant,
+code.ts .numeric.constant {
+  color: var(--magenta);
+}
+code.typescript .function,
+code.ts .function {
+  color: var(--blue);
+}
