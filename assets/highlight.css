@@ -1,110 +1,116 @@
 :root {
-  --light-yellow: #e5c07b;
-  --dark-yellow: #d19a66;
-  --blue: #61afef;
-  --cyan: #56b6c2;
-  --light-red: #e06c75;
-  --dark-red: #be5046;
-  --comment-gray: #5c6370;
-  --magenta: #c678dd;
+  --light-yellow: #F7C66A;
+  --dark-yellow: #b9944e;
+  --blue: #5EA2B8;
+  --cyan: #71acab;
+  --light-red: #BC6E4F;
+  --dark-red: #C26867;
+  --text-white: #cacaca;
+  --text-offwhite: #999;
+  --comment-gray: #7F7F7F;
+  --magenta: #AA88C7;
+  --olive: #A0B978;
 }
 
 pre {
-  border-top: 1px solid white;
-  border-bottom: 1px solid white;
-  padding: 10px 5px;
-  background-color: #1d2e3a;
+  padding: 10px;
+  background-color: #202020;
 }
-
-code.ziggy {
-  color: var(--cyan);
-}
-
-code.ziggy .keyword,
-code.ziggy .type {
-  color: var(--light-yellow);
-}
-code.ziggy .string {
-  color: var(--dark-yellow);
-}
-code.ziggy .numeric.constant {
-  color: var(--magenta);
-}
-code.ziggy .function {
-  color: var(--blue);
-}
-
 
 code.c {
-  color: var(--cyan);
+  color: var(--text-white);
 }
-code.c .keyword,
+code.c .delimiter {
+  color: var(--text-offwhite);
+}
+code.c .comment {
+  color: var(--comment-gray);
+}
+code.c .keyword {
+  color: var(--blue);
+}
 code.c .type {
-  color: var(--light-yellow);
+  color: var(--light-red);
 }
 code.c .string {
-  color: var(--dark-yellow);
+  color: var(--olive);
 }
 code.c .numeric.constant {
   color: var(--magenta);
 }
-code.c .function {
-  color: var(--blue);
-}
 
 code.cpp {
-  color: var(--cyan);
+  color: var(--text-white);
 }
-code.cpp .keyword,
+code.cpp .delimiter {
+  color: var(--text-offwhite);
+}
+code.cpp .comment {
+  color: var(--comment-gray);
+}
+code.cpp .keyword {
+  color: var(--blue);
+}
 code.cpp .type {
-  color: var(--light-yellow);
+  color: var(--light-red);
 }
 code.cpp .string {
-  color: var(--dark-yellow);
+  color: var(--olive);
 }
 code.cpp .numeric.constant {
   color: var(--magenta);
 }
-code.cpp .function {
-  color: var(--blue);
-}
 
 code.zig {
-  color: var(--cyan);
+  color: var(--text-white);
 }
-code.zig .keyword,
-code.zig .type {
-  color: var(--light-yellow);
+code.zig .punctuation_delimiter, .punctuation_bracket, .operator {
+  color: var(--text-offwhite);
+}
+code.zig .comment {
+  color: var(--comment-gray);
+}
+code.zig .keyword, .keyword_import, .keyword_function, .keyword_modifier, .keyword_conditional, .keyword_type, .keyword_return {
+  color: var(--blue);
+}
+code.zig .type_builtin {
+  color: var(--light-red);
+}
+code.zig .function_builtin {
+  color: var(--dark-yellow);
 }
 code.zig .string {
-  color: var(--dark-yellow);
+  color: var(--olive);
 }
 code.zig .numeric.constant {
   color: var(--magenta);
 }
-code.zig .function {
+
+
+code.cs {
+  color: var(--text-white);
+}
+code.cs .punctuation_bracket {
+  color: var(--text-offwhite);
+}
+code.cs .comment {
+  color: var(--comment-gray);
+}
+code.cs .type{
   color: var(--blue);
 }
-
-code.typescript,
-code.ts {
-  color: var(--cyan);
+code.cs .keyword{
+  color: var(--blue);
 }
-code.typescript .keyword,
-code.typescript .type,
-code.ts .keyword,
-code.ts .type {
+code.cs .type {
   color: var(--light-yellow);
 }
-code.typescript .string,
-code.ts .string {
-  color: var(--dark-yellow);
+code.cs .string {
+  color: var(--olive);
 }
-code.typescript .numeric.constant,
-code.ts .numeric.constant {
+code.cs .numeric.constant {
   color: var(--magenta);
 }
-code.typescript .function,
-code.ts .function {
+code.cs .function {
   color: var(--blue);
 }

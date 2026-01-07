@@ -5,6 +5,7 @@ h4,
 h5 {
   color: #f7f7f7;
   font-family: Inter, sans-serif;
+  line-height: initial;
 }
 
 b,
@@ -20,10 +21,11 @@ html {
   color: #d7d7d7;
   font-family: Inter, sans-serif;
   font-size: 1.2em;
+  line-height: 1.5;
   display: flex;
   flex-direction: row;
   justify-content: center;
-  background-color: #273f4f;
+  background-color: #303030;
 }
 
 body {
@@ -44,9 +46,35 @@ body {
 nav {
   display: flex;
   flex-direction: row;
-  justify-content: left;
+  justify-content: center;
   font-size: 1.2em;
   margin-bottom: 20px;
+}
+
+footer {
+  margin-top: 30px;
+  margin-bottom: 10px;
+}
+
+footer > hr {
+  border: none;
+  border-top: 1px solid white;
+  height: 0;
+  opacity: 0.2;
+  margin-bottom:30px;
+}
+
+#footer_nav {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+}
+
+nav > a, #footer_nav > a {
+  text-decoration: none;
+}
+nav, #footer_nav {
+  opacity: 0.5;
 }
 
 .block {
@@ -73,17 +101,6 @@ nav {
   background: #111;
   color: #fff;
   text-shadow: 1px 1px 10px #fff, 1px 1px 10px #ccc;
-}
-
-footer {
-  margin-top: 30px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-footer hr {
-  width: 100%;
 }
 
 /* Prevent horizontal overflow */

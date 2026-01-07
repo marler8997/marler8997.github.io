@@ -17,7 +17,7 @@ The first thing to do was make sure I could inject my own DLL into the game with
 
 Over the next two weeks, outside of working hours, I created a scripting language/VM that could read a script and forward calls to the Mono Embedded API. It continuously reloads the scripts to see if they've changed and re-executes them when they do. Here's the [code](https://github.com/marler8997/mutiny). Last night we gave it a trial run. With ILSpy at the ready to look at the .NET code, I threw together a small script that gets my "steam id" and uses that to upgrade my sprint speed.
 
-```typescript
+```cs
 var Steamworks = @Assembly("Facepunch.Steamworks.Win64")
 var SteamClient = @Class(Steamworks.Steamworks.SteamClient)
 
@@ -54,7 +54,7 @@ We got everyone into the game and started actually playing...well, they started 
 The language is still very basic at the moment with alot of missing features. I don't think functions even really work yet, but, I'm excited to keep iterating on it and improve it as I go.  I'll leave you with the very hacky script I created during the game:
 
 
-```typescript
+```cs
 // save this script to C:\mutiny\mods\REPO\godmode
 var Steamworks = @Assembly("Facepunch.Steamworks.Win64")
 var SteamClient = @Class(Steamworks.Steamworks.SteamClient)
