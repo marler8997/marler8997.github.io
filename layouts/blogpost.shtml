@@ -21,6 +21,9 @@
   </style>
 </head>
 <body id="body">
+  <nav>
+    <a href="/">Home</a>
+  </nav>
   <h1 :text="$page.title"></h1>
   <div>
     <span :text="$page.date.format('January 02, 2006')"></span>

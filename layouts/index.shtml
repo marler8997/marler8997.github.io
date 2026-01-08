@@ -2,6 +2,35 @@
 <head id="head">
 </head>
 <body id="body">
-  <h1 :text="$page.title"></h1>
-  <div :html="$page.content()"></div>
+  <h1>About</h1>
+  <div>
+    <p>Jonathan Marler</p>
+    <a href="mailto:johnnymarler@gmail.com" target="_blank">johnnymarler@gmail.com</a>
+    <p><a href="https://github.com/marler8997" target="_blank">GitHub</a>, <a href="https://twitch.tv/johnnymarler" target="_blank">twitch</a></p>
+  </div>
+
+  <h1>Blog</h1>
+  <div :loop="$site.page('blog').subpages()">
+    <span class="date" :text="$loop.it.date.format('January 02, 2006')"></span>
+    <a class="title" href="$loop.it.link()">
+      <h3 :text="$loop.it.title"></h3>
+    </a>
+  </div>
+
+  <h1>Talks</h1>
+
+  <ul>
+    <li><a href="https://www.youtube.com/watch?v=aPWFLkHRIAQ" target="_blank">How to Use Abstraction to Kill Your API</a></li>
+    <li><a href="https://www.youtube.com/watch?v=1N85yU6RMcY" target="_blank">Ziglibc: Sweeping out the rug from underneath C</a></li>
+    <li><a href="https://www.youtube.com/watch?v=HsnWZxrf5VE" target="_blank">Showing Zig how to see through Bill Gate’s Windows</a></li>
+  </ul>
+
+  <h1>Projects</h1>
+  <ul>
+    <li><a href="https://github.com/marler8997/anyzig" target="_blank">anyzig</a></li>
+    <li><a href="https://github.com/marlersoft/zigwin32" target="_blank">zigwin32</a></li>
+    <li><a href="https://github.com/marler8997/msvcup" target="_blank">msvcup</a></li>
+    <li><a href="https://github.com/marler8997/mutiny" target="_blank">mutiny</a></li>
+  </ul>
+
 </body>

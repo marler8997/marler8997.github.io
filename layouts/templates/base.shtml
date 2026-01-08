@@ -11,13 +11,6 @@
     <super>
   </head>
   <body id="body">
-    <nav>
-      <a href="$site.page('').link()">About</a>
-       &nbsp; • &nbsp;
-      <a href="$site.page('blog').link()">Blog</a>
-       &nbsp; • &nbsp;
-      <a href="https://github.com/marler8997">GitHub</a>
-    </nav>
     <super>
     <footer>
       <hr>
