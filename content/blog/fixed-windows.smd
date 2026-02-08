@@ -56,7 +56,7 @@ int main() { printf("Hello, World\n"); }
 
 @if not exist msvcup.exe (
     echo msvcup.exe: installing...
-    curl -L -o msvcup.zip https://github.com/marler8997/msvcup/releases/download/v2025_08_15/msvcup-x86_64-windows.zip
+    curl -L -o msvcup.zip https://github.com/marler8997/msvcup/releases/download/v2026_02_07/msvcup-x86_64-windows.zip
     tar xf msvcup.zip
     del msvcup.zip
 ) else (
@@ -116,7 +116,7 @@ set TARGET_CPU=x64
 
 @if not exist msvcup.exe (
     echo msvcup.exe: installing...
-    curl -L -o msvcup.zip https://github.com/marler8997/msvcup/releases/download/v2025_08_15/msvcup-x86_64-windows.zip
+    curl -L -o msvcup.zip https://github.com/marler8997/msvcup/releases/download/v2026_02_07/msvcup-x86_64-windows.zip
     tar xf msvcup.zip
     del msvcup.zip
 )
