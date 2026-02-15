@@ -1,0 +1,22 @@
+---
+.title = "Escaping .NET Hell by Rewriting in Zig",
+.author = "",
+.date = @date("2026-02-15T00:00:00"),
+.layout = "blogpost.shtml",
+---
+
+I recently merged my [rewrite](https://github.com/marlersoft/win32jsongen/pull/10) of [win32jsongen](https://github.com/marlersoft/win32jsongen) from C# to Zig!
+
+[win32metadata to zig bindings pipeline]($image.siteAsset("win32jsongenzig.png"))
+
+win32jsongen takes the [win32metadata](https://github.com/microsoft/win32metadata), a binary representation of the win32 API, in the "WinMD" format and converts it to JSON. This JSON is used downstream to generate [Zig bindings](https://github.com/marlersoft/zigwin32). See this [talk](https://www.youtube.com/watch?v=HsnWZxrf5VE) for more details.
+
+I originally wrote win32jsongen in C# because it has built-in support for parsing WinMD files. However, this small isolated C# project became burdensome to maintain. I set out to create the project using the latest recommendations from Microsoft. This meant using the new cross-platform ".NET" (probably still ".NET Core" at the time) but that didn't give me much clarity about what my project actually depended on. There was the language version, the toolchain version, the development runtime version and the system runtime version. I never fully understood how to manage them, which versions was I on, how would I update them, could I update them independently? This murkiness made some tasks harder than they should have been. Setting up a build environment on a new machine meant fumbling through SDK installers hoping I'd picked compatible versions, with no manifest or lockfile to guide me. A successful build also didn't guarantee the result would actually run; that depended on whatever runtimes happened to be installed on the target system, a separate concern from the SDK I'd built with.  What's worse, because I chose to use the latest .NET at the time, I was stuck chasing the latest .NET releases, not for new features but out of fear that Microsoft would stop distributing older SDKs and leave my project stranded. In fact my project targeted ".NET 7" which reached end of support in May 2024, vindicating exactly that fear.
+
+Back in 2022, I lost my motivation to maintain this project (see [Josh Wolfe's talk](https://www.youtube.com/watch?v=V-VO0Ua_b4g)) and that's the last time I updated the C# code. This means the API data used to generate the zig bindings is now lagging years behind. Rather than continue to deal with the status quo, I chose to use this as motivation to find a better way.
+
+I started the port to Zig a few years ago, but it was not easy work writing a good library to handle the WinMD format. I'd lose motivation again and get sidetracked, but still feel the constant nagging that I needed to get back to it. I picked it up again last weekend and finally had a breakthrough in the winmd library that got me past the final hump to the finish line. I'm happy with the winmd library which ended up being about [2000 lines of zig code](https://github.com/marler8997/winmd-zig/blob/d0d8daff01b4fb1a6324c79a855c34ced5bbc8d2/src/winmd.zig) most of which is type definitions.
+
+After finishing, I also noticed I was being hamstrung by some of the abstractions introduced by the equivalent C#/.NET reflection API.  Using the zig library results in a better understanding of how the data is structured which helped me improve the conversion tool.
+
+With these changes I'm hoping to get the metadata up-to-date soon.  I'm also excited to explore generating new C/C++ headers for the win32 API and I have ideas for reworking the Zig bindings as well.
