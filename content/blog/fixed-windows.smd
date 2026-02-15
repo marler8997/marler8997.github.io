@@ -103,7 +103,7 @@ No more "it works on my machine because I have the 2019 Build Tools installed." 
 
 ### Limitations
 
-msvcup focuses on the core compilation toolchain. If you need the full Visual Studio IDE, MSBuild-based project systems, or components like the C++/CLI compiler, you'll still need the official installer. For most native development workflows, though, it covers what you actually need.
+msvcup focuses on the core compilation toolchain. If you need the full Visual Studio IDE you'll still need the official installer. For most native development workflows, though, it covers what you actually need.
 
 ## A Real-World Example: Building Raylib
 
