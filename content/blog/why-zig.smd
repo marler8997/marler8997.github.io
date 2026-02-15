@@ -1,0 +1,9 @@
+---
+.title = "Why I really use Zig",
+.author = "",
+.date = @date("2026-02-12T00:00:00"),
+.layout = "blogpost.shtml",
+---
+
+It's no secret that I like Zig. My top 5 most popular projects on GitHub are all in zig, which include two zig version managers. I've given talks on it, but most importantly, I write ALOT of code in zig.
+
