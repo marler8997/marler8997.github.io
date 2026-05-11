@@ -1,0 +1,23 @@
+---
+.title = "Stop solving the general case",
+.author = "Jonathan Marler",
+.date = @date("2026-05-11T00:00:00"),
+.layout = "blogpost.shtml",
+---
+
+We learn programming through "concepts". Queue, cache, state machine, observer...these names are how the craft gets transmitted, and reaching for the named pattern is the right instict when you're learning. The trap is "I need a queue" turns into "I need a Queue data structure", with all the machinery for arbitrary capacity, types, allocation, access, thread safety, etc. Standard libraries have the difficult task of providing general versions of these concepts. They must juggle all these concerns and make decisions that "work" for everyone but end up also being "sub-optimal" for everyone at the same time.
+
+When we learn to program, we learn though concepts like "Queue", "Cache", "State Machine", "Observer". These names are how knowledge gets transmitted. You're presented a pattern, you recognize it and eventually you can reach for it on your own. This works well for learning. But, somewhere along the way, the concept stops being a tool for understanding and starts being a template for code. You see a producer/consumer situation and you reach for a Queue, the data structure, with all its general-case machinery. You need to remember something so you reach for a Cache. The concept stops guiding you and starts deciding for you.
+
+Experienced programmers go deeper. Rather then letting the concept dictate a "general solution", it serves as a guide from which to create an "artisan solution". Every problem that is "queue-shaped" shouldn't necessary use the same "Queue" data structure. Sometimes you just need an array, a couple integers and a few lines of code.
+
+
+Point: as a programmer, you should be aggressively "ungeneralizing".  Any use case that can't happen should be removed from consideration. Don't worry about the future, worry about now. You will waste less time, ship faster, have fewer bugs, less to think about, etc.
+
+
+In programming we learn higher-level concepts many times I see people try to create a one-to-one mapping from these "concepts" to "code". This isn't always bad but sometimes if you question these basic assumptions and replace a generic implementation of a concept with a customized one it can simplify.
+
+Talk about error cases.  If you aren't willing to go deeper you can miss out on benefits like completely removing error code paths. Never being willing to go deeper and customize the layer down can introduce error paths that don't need to exist. (take example)
+
+
+// TODO: go through example problems and show how
