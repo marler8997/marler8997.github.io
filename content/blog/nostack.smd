@@ -1,0 +1,12 @@
+---
+.title = "Programming Without the Stack",
+.author = "",
+.date = @date("2026-08-05T00:00:00"),
+.layout = "blogpost.shtml",
+---
+
+This is an idea based on some things I've been exploring.
+
+Take an existing programming language (or maybe create a new toy language) and see what programming looks like if you don't have a native stack.  Instead, if you ever want to do anything that normally requires a stack, you have to explicitly reserve/allocate memory for that stack at runtime.  What would this look like?  What APIS would you lose and what could you do instead? How much machine code overhead would this introduce compared to using the typical stack that a CPU has specialized instructions for?  This would also allow you to have multiple simultaneous stacks, this is the interesting part to explore as this could be introduced into existing languages that have a native stack and provide new patterns/ideas about data organization.
+
+One idea, we can statically analyze the frame size for every function. For recusive functions this could be unbounded.  For bounded functions, we could pre-allocate the needed size for any function program which would guarantee we can't stack overflow or run out of stack memory.  For recursive/circular call graph functions, we could have the caller check for available memory at runtime before calling the function. Every call to a recursive function can fail with memory exhausted.
