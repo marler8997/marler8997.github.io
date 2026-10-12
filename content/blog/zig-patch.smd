@@ -1,0 +1,354 @@
+---
+.title = "Patching Zig's std",
+.author = "",
+.date = @date("2026-10-12T00:00:00"),
+.layout = "blogpost.shtml",
+---
+
+Zig 0.17.0 shipped with `std.http.Client.connectUnix` broken. The fix is small, but even if I send it upstream today, the earliest it can ship is 0.18.0, and the time between Zig releases has typically been 6 to 9 months. That's the deal you take when you stick to stable releases instead of following master. Well I don't like that deal. I want my cake (a stable release) and to eat it too (fix bugs now), so let's see how.
+
+Let's make an example that needs the now-broken `connectUnix` function. Docker serves an HTTP API over the unix socket `/var/run/docker.sock`, so let's write a client for it. cd into an empty directory and start by running `zig 0.17.0 init --minimal`. Now yeet that `build.zig` and replace it with this beauty:
+
+```zig
+pub fn build(b: *std.Build) void {
+    const exe = b.addExecutable(.{
+        .name = "dockerver",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("dockerver.zig"),
+            .target = b.standardTargetOptions(.{}),
+        }),
+    });
+    b.installArtifact(exe);
+}
+
+const std = @import("std");
+```
+
+Add `dockerver.zig`:
+
+```zig
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+    var client: std.http.Client = .{ .allocator = init.gpa, .io = io };
+    defer client.deinit();
+
+    const connection = try client.connectUnix("/var/run/docker.sock");
+    var request = try client.request(.GET, try .parse("http://localhost/version"), .{
+        .connection = connection,
+    });
+    defer request.deinit();
+    request.sendBodiless() catch return connection.stream_writer.err.?;
+    var response = request.receiveHead(&.{}) catch |err| switch (err) {
+        error.ReadFailed => return connection.getReadError().?,
+        error.WriteFailed => return connection.stream_writer.err.?,
+        else => |e| return e,
+    };
+
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout = std.Io.File.stdout().writerStreaming(io, &stdout_buffer);
+    _ = response.reader(&.{}).streamRemaining(&stdout.interface) catch |err| switch (err) {
+        error.ReadFailed => return response.bodyErr() orelse connection.getReadError().?,
+        error.WriteFailed => return stdout.err.?,
+    };
+    stdout.interface.flush() catch return stdout.err.?;
+}
+
+const std = @import("std");
+```
+
+Now build:
+
+```
+$ zig build
+.../lib/std/http/Client.zig:1485:58: error: root source file struct 'posix' has no member named 'SocketError'
+pub const ConnectUnixError = Allocator.Error || std.posix.SocketError || error{NameTooLong} || std.posix.ConnectError || Io.Cancelable;
+                                                ~~~~~~~~~^~~~~~~~~~~~
+referenced by:
+    connectUnix: .../lib/std/http/Client.zig:1490:55
+    main: dockerver.zig:6:34
+```
+
+The usual workaround is to copy the broken code into your project and fix it there. In this case though, it requires duplicating details of `std`'s internal memory layout, and if those change in a future release, you get undefined behavior at runtime rather than a compile error. The actual fix to `std` is relatively small, so let's try that instead. Start by making a copy of std and initializing it as a git repo so we can track changes:
+
+```
+cp -r "$(zig env | grep std_dir | cut -d'"' -f2)" std
+(cd std && git init && git add -A && git commit -m original)
+```
+
+To use our copy, add it as an import named `std` to the root module, i.e.
+
+```zig
+// put this in the options we pass to createModule
+.imports = &.{.{ .name = "std", .module = b.createModule(.{
+    .root_source_file = b.path("std/std.zig"),
+}) }},
+```
+
+Importing a module named `std` into the root module replaces std for the whole compilation. Run `zig build` again and confirm you get the same error, only this time, the error is in our `std` copy. Now employ your typical fix/rebuild workflow to squash the bug. Spoiler alert: here's a fixed `ConnectUnixError` and `connectUnix` for `std/http/Client.zig`:
+
+```zig
+pub const ConnectUnixError = Allocator.Error || Io.net.UnixAddress.InitError || Io.net.UnixAddress.ConnectError;
+
+pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*Connection {
+    const io = client.io;
+    // the pool only compares a host's bytes, it doesn't need to be a valid host name
+    const host: HostName = .{ .bytes = path };
+
+    if (try client.connection_pool.findConnection(io, .{
+        .host = host,
+        .port = 0,
+        .protocol = .plain,
+    })) |conn| return conn;
+
+    const address: Io.net.UnixAddress = try .init(path);
+    var stream = try address.connect(io);
+    errdefer stream.close(io);
+
+    const pc = try Connection.Plain.create(client, host, 0, stream);
+    errdefer pc.destroy();
+    try client.connection_pool.addUsed(io, &pc.connection);
+    return &pc.connection;
+}
+```
+
+Now it builds, but how do we share it with the world? We *could* add our new copy of `std` to source control, and that would *work*. However, that's over 450,000 lines of code we'd be adding to our repository. There's another way, a patch file! Since we initialized our `std` copy as a git repo, we can create a patch file with this command:
+
+```
+(cd std && git diff -M -C) > connect-unix.patch
+```
+
+[zig-patch](https://github.com/marler8997/zig-patch) applies patch files as part of your build. Add it as a dependency:
+
+```
+zig fetch --save git+https://github.com/marler8997/zig-patch
+```
+
+And here's our new `build.zig`:
+
+```zig
+pub fn build(b: *std.Build) void {
+    const std_patched = b.dependency("patch", .{
+        .std_patches = &[_]std.Build.LazyPath{
+            b.path("connect-unix.patch"),
+        },
+    }).module("std");
+    const exe = b.addExecutable(.{
+        .name = "dockerver",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("dockerver.zig"),
+            .target = b.standardTargetOptions(.{}),
+            .imports = &.{.{ .name = "std", .module = std_patched }},
+        }),
+    });
+    b.installArtifact(exe);
+}
+
+const std = @import("std");
+```
+
+Now you can remove your copy of `std`, and your tool still builds and runs:
+
+```
+$ zig build && ./zig-out/bin/dockerver
+{"Version":"28.5.1","ApiVersion":"1.51"}
+```
+
+The fix is a 60-line file anyone can read, and when a Zig release includes it, you delete the patch and its line in `build.zig`. Applying it doesn't slow down your builds either. zig-patch runs as a normal build step, so Zig caches the patched std and only redoes it when a patch or the Zig version changes. Like the copy workaround, the patch relies on std's private details, but when they change, the patch breaks at build time instead of at runtime: either its hunks no longer match, or the private code it calls no longer compiles.
+
+## Stacking patches
+
+Look back at how `build.zig` creates the patched std:
+
+```zig
+const std_patched = b.dependency("patch", .{
+    .std_patches = &[_]std.Build.LazyPath{
+        b.path("connect-unix.patch"),
+    },
+}).module("std");
+```
+
+Note the plural `std_patches`. `zig-patch` supports multiple patches. You can maintain your own patches to std, or include patches from other projects. In fact, there's one project you can add today that has no modules and no libraries. It's just a patch to std. Fetch it into our Docker project:
+
+```
+zig fetch --save git+https://github.com/marler8997/zig-staticio
+```
+
+Now we can add that patch to our list:
+
+```zig
+        .std_patches = &[_]std.Build.LazyPath{
+            b.path("connect-unix.patch"),
+            b.dependency("staticio", .{}).namedLazyPath("std.patch"),
+        },
+```
+
+The patched std behaves exactly like the original until you opt in, so the Docker program builds and runs unchanged. So what does staticio do once you opt in?
+
+## staticio
+
+`std.Io` is the interface every I/O operation goes through. Like `std.mem.Allocator`, it's a `userdata` pointer plus a pointer to a vtable, and the vtable holds about a hundred functions. To write your own `Io`, you fill in all of them. Most programs use a handful, so you implement those and stub out the rest with `error.Unimplemented`, and hope you guessed right. When you guess wrong, you find out at runtime.
+
+staticio adds an `io_vtable` field to `std.Options`, which lets the root module choose its `Io` implementation at compile time. With that, `io.vtable` stops being a runtime pointer and becomes a comptime type, so every `io.vtable.X(...)` is a direct call, and Zig only compiles the functions your program can reach.
+
+The HTTP client reaches far more than you'd guess (staticio showed me it loads TLS certificate bundles, for a client that only talks over a unix socket), so let's keep it small with a hello world. Add a second executable to `build.zig`, using the same patched std:
+
+```zig
+    const hello = b.addExecutable(.{
+        .name = "hello",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("hello.zig"),
+            .target = b.graph.host,
+            .optimize = .small,
+            .imports = &.{.{ .name = "std", .module = std_patched }},
+        }),
+    });
+    b.installArtifact(hello);
+```
+
+We build it with `.optimize = .small` to keep the panic handler out of the picture. In the other modes it's reachable, and with a custom `Io` it needs a `crashHandler` function plus a separate `std_options_debug_io` declaration for printing stack traces. That's more than a hello world needs.
+
+Then add a normal `hello.zig`:
+
+```zig
+pub fn main(init: std.process.Init) !void {
+    var stdout = std.Io.File.stdout().writerStreaming(init.io, &.{});
+    stdout.interface.writeAll("Hello, World!\n") catch return stdout.err.?;
+}
+
+const std = @import("std");
+```
+
+```
+$ zig build && ./zig-out/bin/hello
+Hello, World!
+```
+
+We haven't opted in yet, so this is the same program you'd get from the unpatched std, and the binary is 145 KB on Linux. Now opt in to direct calls with std's own `Io` implementation by adding one line to `hello.zig`:
+
+```zig
+pub const std_options: std.Options = .{ .io_vtable = .threaded };
+```
+
+Same program, same output, but only the parts of `std.Io.Threaded` it can reach get compiled in, and the binary drops to 31 KB.
+
+Now for the fun part. Instead of `.threaded`, we can select our own implementation with `.{ .custom = MyIo }`. `MyIo` only needs the functions the program can reach, and if one is missing, you get a compile error instead of a runtime error. Let's start with an empty one:
+
+```zig
+pub const std_options: std.Options = .{ .io_vtable = .{ .custom = MyIo } };
+
+const MyIo = struct {};
+
+pub fn main() u8 {
+    const io: std.Io = .{ .userdata = null };
+    var stdout = std.Io.File.stdout().writerStreaming(io, &.{});
+    stdout.interface.writeAll("Hello, World!\n") catch return 1;
+    return 0;
+}
+
+const std = @import("std");
+```
+
+`main` no longer takes a `std.process.Init`, since that sets up the default `std.Io.Threaded`, and it returns a `u8` instead of an error, since returning an error pulls in error-trace printing. Building gives us our to-do list:
+
+```
+$ zig build
+Io/File/Writer.zig:101:24: error: struct 'hello.MyIo' has no member named 'fileWritePositional'
+Io/File/Writer.zig:148:24: error: struct 'hello.MyIo' has no member named 'fileWriteFilePositional'
+Io/File/Writer.zig:181:24: error: struct 'hello.MyIo' has no member named 'fileWriteFileStreaming'
+IoStatic.zig:562:21: error: struct 'hello.MyIo' has no member named 'operate'
+error: 4 compilation errors
+```
+
+`operate` is where the actual write happens. The other three are reachable because a `File.Writer` picks its mode at runtime, but our writer is always streaming, so they're never called. Implement those 4, build again, and the compiler finds one more that only became reachable through the positional path:
+
+```
+Io/File/Writer.zig:218:22: error: struct 'hello.MyIo' has no member named 'fileSeekTo'
+            io.vtable.fileSeekTo(io.userdata, w.file, offset) catch |err| {
+            ~~~~~~~~~^~~~~~~~~~~
+referenced by:
+    seekTo: Io/File/Writer.zig:201:25
+    sendFilePositional: Io/File/Writer.zig:154:25
+```
+
+Add that, and we have a complete `Io` for our program:
+
+```zig
+const MyIo = struct {
+    pub fn operate(_: ?*anyopaque, op: std.Io.Operation) std.Io.Cancelable!std.Io.Operation.Result {
+        switch (op) {
+            .file_write_streaming => |w| return .{ .file_write_streaming = write(w.file, w.header, w.data, w.splat) },
+            else => @trap(), // hello world only writes to stdout
+        }
+    }
+
+    fn write(file: std.Io.File, header: []const u8, data: []const []const u8, splat: usize) !usize {
+        // a partial write is fine, the writer calls again with the rest
+        const bytes = if (header.len > 0) header else if (data.len > 1 or splat > 0) data[0] else return 0;
+        const rc = std.os.linux.write(file.handle, bytes.ptr, bytes.len);
+        return switch (std.os.linux.errno(rc)) {
+            .SUCCESS => rc,
+            else => error.Unexpected,
+        };
+    }
+
+    // the writer's mode is a runtime value, so its positional paths are
+    // reachable, but our writer is always streaming
+    pub fn fileWritePositional(_: ?*anyopaque, _: std.Io.File, _: []const u8, _: []const []const u8, _: usize, _: u64) std.Io.File.WritePositionalError!usize {
+        @trap();
+    }
+    pub fn fileSeekTo(_: ?*anyopaque, _: std.Io.File, _: u64) std.Io.File.SeekError!void {
+        @trap();
+    }
+    pub fn fileWriteFileStreaming(_: ?*anyopaque, _: std.Io.File, _: []const u8, _: *std.Io.File.Reader, _: std.Io.Limit) std.Io.File.Writer.WriteFileError!usize {
+        @trap();
+    }
+    pub fn fileWriteFilePositional(_: ?*anyopaque, _: std.Io.File, _: []const u8, _: *std.Io.File.Reader, _: std.Io.Limit, _: u64) std.Io.File.WriteFilePositionalError!usize {
+        @trap();
+    }
+};
+```
+
+```
+$ zig build && ./zig-out/bin/hello
+Hello, World!
+```
+
+There are no stubs for the other 94 functions, because nothing in the program reaches them. The 4 stubs we did write aren't guesses either. The compiler told us exactly which functions are reachable, and we know our writer never takes the positional path. They use `@trap()` in case we're wrong. In a release build, `unreachable` would be undefined behavior, and `@panic` would pull the panic handler back in. If the program changes and starts reaching a new function, it's a compile error again.
+
+As a bonus, the binary is now 4.9 KB, down from 31 KB with `.threaded` and 145 KB without staticio.
+
+The catch is that it's one `Io` per program. You can't mix a custom one with `Threaded` in the same binary. Tests also still use the runtime vtable, since the test runner sets its own `std_options`.
+
+## Why patch files?
+
+Zig's build system is a Zig program, so it can already change code at build time any way you like. That's more powerful than a patch file, but it's also harder to follow. A patch file is both the instructions for a change and the documentation of what changed. Lines starting with `-` were removed, lines starting with `+` were added. You don't have to trace through a program to figure out what it does to std, and anyone who's reviewed a pull request can read one.
+
+This isn't a new idea. Linux distros have carried patches on top of upstream packages for decades, and Nix packages have a `patches` list. zig-patch brings that to the Zig build system. It's written in Zig and runs as part of your build, so it doesn't need `patch` or `git` installed. It doesn't support file deletions, mode changes or binary patches, none of which I've needed for std.
+
+zig-patch also ignores line numbers. Each hunk's original lines must appear exactly once in the file being patched, so if std changes somewhere unrelated, the patch still applies. If the code the patch was written against changes, it fails and points at the hunk that no longer matches:
+
+```
+bad.patch:6: patching 'x.txt' failed with HunkNotFound
+```
+
+When you upgrade Zig and the release already includes your fix, that failure is your cue to delete the patch.
+
+zig-patch isn't limited to std either. It can patch any directory. Say a C library you depend on has a fix that hasn't made it into a release yet:
+
+```zig
+const patched_src = b.dependency("patch", .{
+    .source = b.dependency("somelib", .{}).path(""),
+    .patches = &[_]std.Build.LazyPath{
+        b.path("somelib-fix.patch"),
+    },
+}).namedLazyPath("patched");
+```
+
+`patched_src` is a `LazyPath` to the patched copy, so you use it like any other directory, e.g. `patched_src.path(b, "src/foo.c")`. The original is left untouched.
+
+## Try it
+
+- [zig-patch](https://github.com/marler8997/zig-patch)
+- [zig-staticio](https://github.com/marler8997/zig-staticio)
+
+Both support Zig 0.16.0 and 0.17.0.
