@@ -114,3 +114,19 @@ code.cs .numeric.constant {
 code.cs .function {
   color: var(--blue);
 }
+
+code.diff {
+  color: var(--text-offwhite);
+}
+code.diff .variable_builtin {
+  color: var(--light-yellow);
+}
+code.diff .attribute {
+  color: var(--cyan);
+}
+code.diff .keyword {
+  color: var(--dark-red);
+}
+code.diff .string {
+  color: var(--olive);
+}
