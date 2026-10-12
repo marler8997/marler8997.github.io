@@ -119,6 +119,25 @@ img {
   height: auto;
 }
 
+.headshot {
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+}
+
+.byline {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.byline > img {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+
 /* Prevent long words from breaking layout */
 body {
   word-wrap: break-word;

@@ -3,5 +3,6 @@
 </head>
 <body id="body">
   <h1 :text="$page.title"></h1>
+  <img class="headshot" src="$site.asset('headshot.jpg').link()" alt="Jonathan Marler">
   <div :html="$page.content()"></div>
 </body>

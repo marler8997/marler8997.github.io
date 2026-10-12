@@ -22,10 +22,11 @@
 </head>
 <body id="body">
   <h1 :text="$page.title"></h1>
-  <div>
-    <span :text="$page.date.format('January 02, 2006')"></span>
-    &nbsp;•&nbsp;
+  <div class="byline">
+    <img src="$site.asset('headshot.jpg').link()" alt="">
     <span>Jonathan Marler</span>
+    &nbsp;•&nbsp;
+    <span :text="$page.date.format('January 02, 2006')"></span>
   </div>
   <div class="post" :html="$page.content()"></div>
   <div id="prev-next">
