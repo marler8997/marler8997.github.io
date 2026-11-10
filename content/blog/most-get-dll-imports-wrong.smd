@@ -1,0 +1,379 @@
+---
+.title = "Most Languages Get DLL Imports Wrong",
+.author = "",
+.date = @date("2026-11-04T00:00:00"),
+.layout = "blogpost.shtml",
+---
+
+Imports and exports between EXEs and DLLs on Windows are pretty simple. Any binary can have an export table, which is typically a list of names, and an import table, which is a list of DLLs, each with its own list of names to import from it.
+
+[](<$image.siteAsset("ImportList.jpg").alt("A small, cheerful program.exe hands an import list to a hooded Windows PE/COFF runtime loader. The list names KERNEL32.dll, USER32.dll and GDI32.dll, each with functions to import.")>)
+
+> **Note:** You can also reference an export by its index, aka ordinal, but most imports use names, so we'll stick to names for now.
+
+Because each import name is listed under a DLL, the same name can appear in different DLLs. `GetName` from `a.dll` and `GetName` from `b.dll` are two separate imports.
+
+This isn't hypothetical. `kernel32.dll` and `ntdll.dll` both export `RtlFillMemory`, `msvcrt.dll` and `ucrtbase.dll` both export `malloc`, and `user32.dll` and `raylib.dll` both export `CloseWindow`. It's still rare to want both in one program, and the usual answer is `LoadLibrary` and `GetProcAddress`, which works in any language because it never touches the import table. But what happens if you declare both as normal imports?
+
+I tried C, C++, Zig, Rust, D, Odin, C#, Go and Free Pascal. Free Pascal does it with ordinary syntax. Go does it with an internal compiler directive, and Zig used to do it with `-fno-llvm` in 0.16.0, but that broke in 0.17.0. For the rest, some have no way to say which DLL a function comes from, and even worse, some that do will silently ignore it. They build cleanly and call the wrong function.
+
+## The Test
+
+Two DLLs, each exporting a function named `GetName` that returns the name of its DLL:
+
+```c
+// a.c
+__declspec(dllexport) const char *GetName(void) { return "a"; }
+```
+
+```c
+// b.c
+__declspec(dllexport) const char *GetName(void) { return "b"; }
+```
+
+Building these with `cl /LD a.c` and `cl /LD b.c` also produces the import libraries `a.lib` and `b.lib`. A correct program calls both functions and prints `a b`.
+
+Printing the right thing isn't enough though, since a program could be loading the DLLs at runtime. To see what actually landed in the import table, I wrote [imports.c]($link.siteAsset('imports.c')), a small program that prints it. Its output matched `dumpbin /imports` on every test program that built. It only reads the regular import table, so it won't show delay-loaded imports.
+
+## The Results
+
+| Toolchain | Mechanism | Imports `GetName` from | Prints |
+| --- | --- | --- | --- |
+| C (MSVC) | `dllimport`, two translation units | `a.dll` | `a a` ➖ |
+| C++ (MSVC) | `extern "C"` `dllimport` in two namespaces | `a.dll` | `a a` ➖ |
+| Zig | `extern "a"` / `extern "b"` | `a.dll` | `a a` ❌ |
+| Zig 0.16.0 `-fno-llvm` | `extern "a"` / `extern "b"` | both | `a b` ✅ |
+| Rust | `raw-dylib`, one crate | `a.dll` | `a a` ❌ |
+| Rust | `raw-dylib`, two crates | `b.dll` | `b b` ❌ |
+| Rust | `raw-dylib`, `link_ordinal` | both, by ordinal | `a b` ✅ |
+| D (DMD) | `extern(C)` in two modules | `a.dll` | `a a` ➖ |
+| D (LDC) | `extern(C)` in two modules | `b.dll` | `b b` ➖ |
+| D (LDC), compiled separately | `extern(C)` in two modules | `a.dll` | `a a` ➖ |
+| Odin | two `foreign` blocks, or two packages | `a.dll` | `a a` ❌ |
+| C# Native AOT | `DllImport` with `DirectPInvoke` | `a.dll` | `a a` ❌ |
+| Go | `//go:cgo_import_dynamic` | both | `a b` ✅ |
+| Free Pascal | `external 'a.dll' name 'GetName'` | both | `a b` ✅ |
+
+C, C++ and D get a ➖ because nothing ties their declarations to a DLL. D's `pragma(lib)` is like C's `#pragma comment(lib)`, which gives the same result. It's still a trap, as raylib shows below, but they weren't told to do anything else. The ❌ rows were.
+
+None of the wrong rows produced an error or a warning about the duplicate name, and `link.exe /WX` stays quiet too. `link /VERBOSE:UNUSEDLIBS` does list `b.lib`, but next to `uuid.lib` and `OLDNAMES.lib`, because an unused library is normal.
+
+## Why It Happens
+
+An object file's reference to an import is just a symbol, `__imp_GetName`, with no field for a DLL. The DLL name is in the import library, but the linker stops at the first library that defines the symbol. Swapping `a.lib b.lib` to `b.lib a.lib` swaps which DLL you get, with both `link.exe` and LLD. The other library has nothing left to resolve, so there's no conflict to report.
+
+C can't even ask for two different functions. `__declspec(dllimport)` doesn't take a DLL name, and the same name in C means the same function, so the closest you can get with plain declarations is to declare `GetName` in two translation units:
+
+```c
+// tu_a.c
+__declspec(dllimport) const char *GetName(void);
+const char *call_a(void) { return GetName(); }
+```
+
+```c
+// tu_b.c
+__declspec(dllimport) const char *GetName(void);
+const char *call_b(void) { return GetName(); }
+```
+
+```c
+// two.c
+#include <stdio.h>
+const char *call_a(void);
+const char *call_b(void);
+int main(void) { printf("%s %s\n", call_a(), call_b()); }
+```
+
+```sh
+cl /c tu_a.c tu_b.c two.c
+link /out:two.exe tu_a.obj tu_b.obj two.obj a.lib b.lib
+```
+
+That prints `a a`, and `imports` shows that `b.dll` never made it into the file. This is its output with the `KERNEL32.dll` entry trimmed:
+
+```
+a.dll
+    GetName
+```
+
+You can get a correct result from C by writing the `.idata` sections by hand in inline assembly, which I also tried with `zig cc`, but at that point you're building the import table yourself.
+
+The more interesting failures are in the languages that do let you say where a function comes from. Zig, Rust and C# take a DLL name on the declaration, and Odin attaches a library to it.
+
+## Zig
+
+Zig has the syntax for this, and it looks exactly like what you'd want:
+
+```zig
+const std = @import("std");
+const a = struct { extern "a" fn GetName() callconv(.c) [*:0]const u8; };
+const b = struct { extern "b" fn GetName() callconv(.c) [*:0]const u8; };
+pub fn main() void {
+    std.debug.print("{s} {s}\n", .{ a.GetName(), b.GetName() });
+}
+```
+
+```sh
+zig build-exe -target x86_64-windows-gnu main.zig -L. -la -lb
+```
+
+This prints `a a`, and `@extern` with `.library_name` and `.is_dll_import = true` imports the same way. The one setup that got it right was Zig 0.16.0 with `-fno-llvm`. On 0.17.0 and master, `-fno-llvm` is back to importing only from `a.dll`, and the `@extern` version segfaults at runtime. I haven't tracked down what changed. On 0.15.2, `-fno-llvm` also imports only from `a.dll`, and the exe won't load without a `compiler_rt.dll` that the build doesn't produce.
+
+## Rust
+
+`raw-dylib` names the DLL on each extern block, and Rust generates the import data itself. [Its RFC](https://rust-lang.github.io/rfcs/2627-raw-dylib-kind.html) says that "the user is ensured that the symbol will come from the specified dll", and that "Rust will emit an idata section that maps from the mangled symbol to a symbol in the specified dll". So let's try it:
+
+```rust
+use std::ffi::{CStr, c_char};
+mod a { #[link(name = "a", kind = "raw-dylib")] unsafe extern "C" { pub fn GetName() -> *const super::c_char; } }
+mod b { #[link(name = "b", kind = "raw-dylib")] unsafe extern "C" { pub fn GetName() -> *const super::c_char; } }
+fn main() { unsafe { println!("{} {}", CStr::from_ptr(a::GetName()).to_str().unwrap(), CStr::from_ptr(b::GetName()).to_str().unwrap()); } }
+```
+
+This prints `a a`, at both `opt-level=0` and `opt-level=3`. Giving each function its own Rust name with `#[link_name = "GetName"]` does the same.
+
+Putting each extern block in its own crate gets stranger. That prints `b b`, because the link line lists `b_sys` first. Change `main` to call the `b` crate first and it prints `a a` instead, so reordering two calls changes which DLL both of them use.
+
+`#[link_ordinal]` does work, but it imports by number rather than by name. `GetName` is ordinal 1 in my DLLs, so you'd be pinning yourself to how each DLL was built.
+
+This one is already known. [rust-lang/rust#155969](https://github.com/rust-lang/rust/issues/155969) reports the same behavior with `RtlFillMemory` from `kernel32` and `ntdll`. When I checked, it was still open, with no decision on whether to mangle the names, make it a hard error, or leave it as is. A related issue, [#113050](https://github.com/rust-lang/rust/issues/113050), has been open since 2023: a local export with the same name as a `raw-dylib` import captures it.
+
+## D
+
+```
+module moda;
+pragma(lib, "a");
+export extern(C) const(char)* GetName();
+```
+
+`modb` is the same with `b`, and `main` calls `moda.GetName()` and `modb.GetName()`. `pragma(lib)` adds a link input rather than tying the declaration to a DLL, so this is a less direct promise than Zig's or Rust's. The result still depends on things that have nothing to do with the DLLs. DMD binds both to `a.dll`. LDC binds both to `b.dll` when it compiles the modules together, and to `a.dll` if you compile them separately or swap the order of the two imports.
+
+## Odin
+
+Odin ties each `foreign` block to a library:
+
+```
+package main
+import "core:fmt"
+foreign import a "a.lib"
+foreign import b "b.lib"
+foreign a { @(link_name="GetName") a_GetName :: proc "c" () -> cstring --- }
+foreign b { @(link_name="GetName") b_GetName :: proc "c" () -> cstring --- }
+main :: proc() { fmt.println(a_GetName(), b_GetName()) }
+```
+
+This prints `a a`, with both its default linker and `-linker:lld`. Declaring `GetName` in two separate packages gives the same result.
+
+## C#
+
+Normal C# gets the right answer because it loads DLLs at runtime, so there's no import table entry and nothing to collide:
+
+```cs
+[DllImport("a", EntryPoint = "GetName", CallingConvention = CallingConvention.Cdecl)] static extern IntPtr a_GetName();
+[DllImport("b", EntryPoint = "GetName", CallingConvention = CallingConvention.Cdecl)] static extern IntPtr b_GetName();
+```
+
+With a `Main` that prints both through `Marshal.PtrToStringAnsi`, that prints `a b`, including under Native AOT. Native AOT also has a mode that binds these at link time: add `<DirectPInvoke Include="a" />` and `<DirectPInvoke Include="b" />` to the project and pass the import libraries as `<NativeLibrary>` items. The same source then prints `a a`. A build setting silently changed which function gets called.
+
+## Go
+
+The normal way to do this in Go is `syscall.NewLazyDLL`, which loads at runtime like C#. It also works. But Go can put both in the import table, using a directive you've probably never seen:
+
+```go
+package main
+
+import (
+	"fmt"
+	"syscall"
+	"unsafe"
+)
+
+//go:cgo_import_dynamic a_GetName GetName%0 "a.dll"
+//go:cgo_import_dynamic b_GetName GetName%0 "b.dll"
+
+//go:linkname a_GetName a_GetName
+//go:linkname b_GetName b_GetName
+var a_GetName, b_GetName unsafe.Pointer
+
+func call(f unsafe.Pointer) string {
+	s, _, _ := syscall.SyscallN(uintptr(f))
+	return unsafe.String((*byte)(unsafe.Pointer(s)), 1) // one-character strings
+}
+
+func main() {
+	fmt.Println(call(a_GetName), call(b_GetName))
+}
+```
+
+This prints `a b`, and both imports show up in the import table. No C compiler was involved. The directive has a local name, a remote name and a DLL, and the local name is what keeps the two imports from colliding. Go's own runtime uses it to import from `kernel32.dll`.
+
+This isn't a friendly API. You're calling through a raw pointer, and `go vet` flags the conversion in `call`. The directive is meant for internal use, though the compiler source explicitly permits it for general use, citing Solaris code. I also only tested Go's internal linker, since external linking requires cgo.
+
+## Free Pascal
+
+Free Pascal has this in its ordinary, [documented](https://www.freepascal.org/docs-html/current/prog/progsu146.html) syntax:
+
+```
+program two;
+function a_GetName: PChar; cdecl; external 'a.dll' name 'GetName';
+function b_GetName: PChar; cdecl; external 'b.dll' name 'GetName';
+begin
+  writeln(a_GetName, ' ', b_GetName);
+end.
+```
+
+This prints `a b`, with no import libraries and no flags. It also works with the same name, `GetName`, declared in two units and called as `ua.GetName()` and `ub.GetName()`. The result was the same with Free Pascal's internal linker and with GNU `ld` through `-Xe`, so this isn't a special linker at work.
+
+## The Workaround: EXPORTAS
+
+Most of the others can get the same local name and remote name from a `.def` file. `EXPORTAS` gives an import a different name at link time than the one written into the import table:
+
+```
+LIBRARY a.dll
+EXPORTS
+a_GetName EXPORTAS GetName
+```
+
+```
+LIBRARY b.dll
+EXPORTS
+b_GetName EXPORTAS GetName
+```
+
+Generate an import library from each, with `lib /def:a.def /machine:x64` or `zig dlltool -m i386:x86-64 -d a.def -l a.lib`. Then declare `a_GetName` and `b_GetName` in your code and link both libraries:
+
+```c
+#include <stdio.h>
+__declspec(dllimport) const char *a_GetName(void);
+__declspec(dllimport) const char *b_GetName(void);
+int main(void) { printf("%s %s\n", a_GetName(), b_GetName()); }
+```
+
+This prints `a b`, and `imports` shows both DLLs providing a function named `GetName`:
+
+```
+a.dll
+    GetName
+b.dll
+    GetName
+```
+
+So you can do this from C after all, as long as you write the mapping outside of C.
+
+I'm not the first to notice this. Chris Wellons covered the same idea in [How to link identical function names from different DLLs](https://nullprogram.com/blog/2023/08/27/) in 2023, calling both `malloc`s from `msvcrt.dll` and `ucrtbase.dll` with `ucrt_malloc == malloc` and GNU `dlltool`. That post says that as far as the author knows, MSVC's `lib` can't quite do this renaming. With `EXPORTAS`, version 14.44 can, though Microsoft's [EXPORTS documentation](https://learn.microsoft.com/en-us/cpp/build/reference/exports) doesn't mention it.
+
+It worked with MSVC, `zig cc`, the Zig compiler's default LLVM build on 0.15.2, 0.16.0, 0.17.0 and master, Rust, LDC, Odin with `-linker:lld` and C# Native AOT. There are a few gotchas:
+
+- With `lib.exe`, use `EXPORTAS`, not `a_GetName = GetName`. The `=` form builds an exe that imports a function named `a_GetName`, which then fails to load with `STATUS_ENTRYPOINT_NOT_FOUND`.
+- The `==` form from that post is for GNU `dlltool`, which I didn't test. It failed with undefined symbols with `llvm-dlltool` 18.1.3.
+- Older tools may not understand `EXPORTAS`. `llvm-dlltool` 18.1.3 on Linux wrote `a_GetName` and `b_GetName` into the import table instead of `GetName`. LLVM [added support](https://github.com/llvm/llvm-project/pull/78772) to its tools in February 2024, and [to LLD](https://llvm.googlesource.com/llvm-project/lld/+/bec0efd9b347583a598f4bf5800ac88f781f04c9%5E%21/) separately.
+- DMD's bundled LLD 9 turns these libraries into an import of ordinal 0, and the exe fails to load with `STATUS_ORDINAL_NOT_FOUND`. Setting `LINKCMD64=link.exe` fixes it. Odin's default linker, RADLINK, fails the same way, and `-linker:lld` fixes it there.
+- Zig's `-fno-llvm` can't use these libraries. On 0.17.0 and master it stops with `TODO handle name_type NAME_EXPORTAS`, and on 0.16.0 the exe crashes.
+
+## A Real Example: raylib
+
+I ran into this when I contributed a [native Win32 backend](https://github.com/raysan5/raylib/pull/4869) to raylib. raylib has its own `CloseWindow`, `ShowCursor` and `Rectangle`, and so does Windows. Including `windows.h` in the same file as raylib's versions is a compile error, so the backend [renames the Windows declarations with macros](https://github.com/raysan5/raylib/blob/f61c2c504d56e6d18b05d024490bd4bdd0fb2448/src/platforms/rcore_desktop_win32.c#L45) (trimmed here):
+
+```c
+#define CloseWindow CloseWindowWin32
+#define Rectangle RectangleWin32
+#define ShowCursor ShowCursorWin32
+
+#include <windows.h>
+
+#undef CloseWindow
+#undef Rectangle
+#undef ShowCursor
+```
+
+That only works because the backend never calls those Windows functions. Calling `ShowCursorWin32` fails to link, since `user32.lib` has no symbol by that name. Calling `ShowCursor` from a separate file without the macros fails too, with `ShowCursor already defined`, because `user32.lib` defines that symbol as well. What does work is the `EXPORTAS` trick from above, with `ShowCursorWin32 EXPORTAS ShowCursor`.
+
+Those failures are at least loud. The silent version is waiting for anyone who uses `raylib.dll`, which exports `CloseWindow` and `ShowCursor` just like `user32.dll` does. I linked a small program that calls both against raylib 6.2:
+
+| Link line | Both functions imported from |
+| --- | --- |
+| `link app.obj raylibdll.lib user32.lib` | `raylib.dll` |
+| `link app.obj user32.lib raylibdll.lib` | `USER32.dll` |
+
+Both link cleanly, even with `/WX`. Swap two libraries and your `CloseWindow` call goes to the Win32 function instead, which [minimizes a window](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-closewindow) rather than closing yours, and which expects a window handle that your code never passed.
+
+## I Blame C
+
+The ask is really simple: I want to call a function named X from a DLL named Y. That pair is exactly what every entry in the import table holds, and you can't write it in C. You can say you want to call a function named X, but you can't say where X comes from. That part lives outside the language, in whichever import libraries are on the link line. Microsoft's docs have to list the DLL for each Win32 function, because the header that declares it can't say.
+
+I attribute most of this to the C language lacking namespace semantics. A linker can only work with the symbols it's given, and C only gives it one name. `EXPORTAS` works on the same linkers that get this wrong, and Free Pascal works with GNU `ld`, so the linker isn't a hard limit.
+
+But namespacing alone doesn't fix it, and C++ has the same problem. Matching a plain DLL export takes `extern "C"`, which drops the namespace from the symbol, so `a::GetName()` and `b::GetName()` compile and link cleanly and both call `a.dll`. Both languages still lack a way to declare a reference to a specific DLL/name pair in the import table.
+
+`EXPORTAS` is still just a workaround, and it only punts the problem down the road. It emulates DLL namespaces by creating aliases like `a_GetName`, and those aliases live in the same flat namespace, where they can conflict too. It also takes an extra `.def` file and import library to express something the import table already holds.
+
+The real solution is for languages to support DLL namespaces, with a way to declare a reference to a DLL and a symbol directly. In C, that could be an extension of `dllimport` that takes the DLL name and the import name, and the function can be called whatever you want. `windows.h` could declare `CloseHandle` like this:
+
+```c
+__declspec(dllimport("kernel32.dll", "CloseHandle")) BOOL WINAPI CloseHandle(HANDLE hObject);
+```
+
+The same syntax could cover ordinals, which the import table also supports, by taking a number in place of the name:
+
+```c
+__declspec(dllimport("kernel32.dll", 163)) BOOL WINAPI CloseHandle(HANDLE hObject);
+```
+
+But that 163 is only right for my build of Windows. `CloseHandle` has been 126, 135, 138, 149 and 165 across other Windows 10 and 11 releases. It wouldn't buy much speed either. A name import also stores a hint, a guess at the name's position in the DLL's export table, and in my tests an ordinal import saved about 8 ns over a name with a correct hint (the measurements are at the end of the post). Ordinals are for DLLs that keep them fixed, and for exports that have no name, where they're the only way to import them.
+
+If two headers conflict, you can rename the function with a macro. The import name is a string, so the preprocessor leaves it alone:
+
+```c
+#define GetName a_GetName
+#include "a.h"
+#undef GetName
+
+#define GetName b_GetName
+#include "b.h"
+#undef GetName
+```
+
+The compiler could emit the import data itself, as my inline assembly test did, under symbols private to that object file. Unlike `EXPORTAS` aliases, those couldn't conflict at link time. It's the same macro trick as the raylib backend, except that the renamed functions could actually be called.
+
+Zig, Rust and C# wouldn't need new syntax at all, since they already name the DLL. They just need to honor it, by carrying that pair all the way to the import table instead of collapsing it into one symbol. Free Pascal and Go show that can be done.
+
+This does have costs. The Rust discussion points out that mangling these names would stop people from overriding an import with their own definition, and that a hard error could break legitimate cases like re-exports and API sets. Naming the DLL in a header also moves that choice from link time to compile time. Linking with `mincore.lib` today resolves `CloseHandle` to `api-ms-win-core-handle-l1-1-0.dll`, and the declaration above would lose that. But if you wrote the DLL name, you already said which one you want. If a language accepts `extern "b" fn GetName` next to `extern "a" fn GetName` and then calls `a.dll` for both, a warning would be better than nothing, and doing what the code says would be better still.
+
+A program that fails to link gets fixed today. A program that calls the wrong function with the right name gets fixed whenever someone finally notices.
+
+## Test Setup
+
+The `llvm-dlltool` 18.1.3 runs were on Linux. Everything else ran natively on x64 Windows 11, with the DLLs built by `cl /LD`:
+
+- MSVC 14.44 with SDK 10.0.22621, installed with [msvcup](https://github.com/marler8997/msvcup)
+- Zig 0.15.2, 0.16.0, 0.17.0 and 0.18.0-dev.855 (master), targeting `x86_64-windows-gnu`. The `x86_64-windows-msvc` target matched on 0.16.0, 0.17.0 and master.
+- Rust 1.99.1, targeting `x86_64-pc-windows-msvc`
+- Go 1.27.3
+- DMD 2.113.1 and LDC 1.43.0
+- Odin dev-2026-11-nightly:9a69916
+- .NET SDK 10.0.403
+- Free Pascal 3.2.2
+
+I didn't test MinGW `gcc` with GNU `ld`, x86 or ARM64, and x86 has its own name decoration that could change these results. I also couldn't test `raw-dylib` on Rust's `windows-gnu` target, because the `dlltool` from a minimal rustup install failed with a `CreateProcess` error.
+
+## Ordinal Measurements
+
+To time ordinals, I generated minimal x64 exes that only load and exit. Each one imports every named export of a DLL that isn't forwarded to another DLL, repeated 40 times to get above the noise. These are medians over 200 runs of process start to exit, on one machine, where an exe with no imports took 2,766 µs:
+
+| DLL | Imports | Ordinal | Name, correct hint | Name, hint of 0 |
+|-----|---------|---------|--------------------|-----------------|
+| `ntdll.dll` | 100,880 | 4,220 µs | 5,056 µs | 9,705 µs |
+| `kernel32.dll` | 59,480 | 3,684 µs | 4,108 µs | 6,596 µs |
+
+That's about 15 ns per import by ordinal, 23 ns by name with a correct hint, and 65 to 70 ns by name with a bad one. Repeating the names may flatter the name columns a little.
+
+Ordinals also make the file smaller, since it doesn't have to store the names. This is the same test with each export imported once:
+
+| DLL | Imports | Ordinal | Name |
+|-----|---------|---------|------|
+| `ntdll.dll` | 2,522 | 41,472 bytes | 103,424 bytes |
+| `kernel32.dll` | 1,487 | 25,088 bytes | 58,880 bytes |
+
+That's about 23 to 25 bytes per import.
+
+For stability, I compared one build per Windows 10 and 11 release from the Microsoft symbol server. Usually well over half of the ordinals moved from one release to the next, and a monthly update can move them too. From 19041.928 to 19041.3031, 516 of the 1,633 named exports in `kernel32.dll` changed ordinal, and from 19041.928 to 19041.7802, 2,160 of the 2,429 in `ntdll.dll` did.
